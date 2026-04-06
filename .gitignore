@@ -1,0 +1,5 @@
+.env
+__pycache__/
+*.pyc
+.DS_Store
+# 移除對 data 資料夾的忽略，確保 GitHub Actions 能存取

@@ -67,11 +67,24 @@ class Processor:
             return "錯誤：未設定有效的 API 金鑰。"
 
         try:
-            if self.gemini_client:
-                # 使用 Gemini 2.5 Flash (或 config 中指定的模型)
-                model_name = self.config.get('model', 'models/gemini-2.0-flash')
+            model_name = self.config.get('model', 'gemini-2.5-flash')
+            
+            # Use OpenAI if specified and client is available
+            if self.openai_client and ('gpt' in model_name or not self.gemini_client):
+                response = self.openai_client.chat.completions.create(
+                    model=model_name if 'gpt' in model_name else 'gpt-4o',
+                    messages=[
+                        {"role": "system", "content": system_instruction},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=self.config.get('temperature', 0.3)
+                )
+                return response.choices[0].message.content
+            
+            # Use Gemini as default or if specified
+            elif self.gemini_client:
                 if 'gemini' not in model_name:
-                    model_name = 'models/gemini-2.0-flash' # Fallback
+                    model_name = 'gemini-2.5-flash'
                 
                 response = self.gemini_client.models.generate_content(
                     model=model_name,
@@ -83,15 +96,7 @@ class Processor:
                 )
                 return response.text
             else:
-                response = self.openai_client.chat.completions.create(
-                    model=self.config.get('model', 'gpt-4o'),
-                    messages=[
-                        {"role": "system", "content": system_instruction},
-                        {"role": "user", "content": prompt}
-                    ],
-                    temperature=self.config.get('temperature', 0.3)
-                )
-                return response.choices[0].message.content
+                return "錯誤：找不到可用的 LLM 客戶端。"
         except Exception as e:
             logger.error(f"Generation error: {e}")
             return f"生成回應時發生錯誤: {e}"
@@ -292,15 +297,19 @@ class Processor:
         )
 
         try:
+            model_name = self.config.get('model', 'gemini-2.5-flash')
+            if 'gemini' not in model_name:
+                model_name = 'gemini-2.5-flash'
+
             if self.gemini_client:
                 response = self.gemini_client.models.generate_content(
-                    model='models/gemini-2.5-flash',
+                    model=model_name,
                     contents=prompt
                 )
                 summary = response.text
             else:
                 response = self.openai_client.chat.completions.create(
-                    model=self.config['model'],
+                    model=self.config.get('model', 'gpt-4o'),
                     messages=[
                         {"role": "system", "content": "You are a professional financial analyst. NEVER use introductory phrases. Start directly with the analysis. Sentiment index should be 0-100."},
                         {"role": "user", "content": prompt}
