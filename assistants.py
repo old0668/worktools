@@ -29,8 +29,22 @@ st.markdown("""
     /* 容器邊距 */
     .block-container { padding-top: 2rem !important; max-width: 1100px !important; }
     
-    /* 側邊欄優化 */
-    [data-testid="stSidebar"] { background-color: #FFFFFF; border-right: 1px solid #E2E8F0; }
+    /* 側邊欄：確保標籤與說明文字對比足夠（避免淺灰難以辨識） */
+    [data-testid="stSidebar"] {
+        background-color: #FFFFFF;
+        border-right: 1px solid #E2E8F0;
+        color: #0F172A !important;
+    }
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] .stMarkdown,
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {
+        color: #0F172A !important;
+    }
+    [data-testid="stSidebar"] [data-baseweb="radio"] label,
+    [data-testid="stSidebar"] .stRadio label {
+        color: #0F172A !important;
+    }
     [data-testid="stSidebar"] .stRadio > div { gap: 10px; }
     
     /* 標題置中與樣式 */
@@ -72,8 +86,36 @@ st.markdown("""
         margin-bottom: 10px;
     }
     
-    /* 讓 Expander 標題更醒目 */
-    .stExpander { border: 1px solid #E2E8F0 !important; border-radius: 10px !important; margin-bottom: 1rem !important; background: white !important; }
+    /* Expander：標題列與內容區對比（避免深底配深字） */
+    [data-testid="stExpander"] {
+        border: 1px solid #E2E8F0 !important;
+        border-radius: 10px !important;
+        margin-bottom: 1rem !important;
+        background: #FFFFFF !important;
+    }
+    [data-testid="stExpander"] summary,
+    [data-testid="stExpander"] details > summary {
+        background-color: #E2E8F0 !important;
+        color: #0F172A !important;
+    }
+    [data-testid="stExpander"] summary * ,
+    [data-testid="stExpander"] details > summary * {
+        color: #0F172A !important;
+    }
+    /* Streamlit 常用 class（與 summary 並用，涵蓋不同版本） */
+    .streamlit-expanderHeader {
+        background-color: #E2E8F0 !important;
+        color: #0F172A !important;
+    }
+    .streamlit-expanderHeader p,
+    .streamlit-expanderHeader span {
+        color: #0F172A !important;
+    }
+
+    /* 說明小字：略深於預設 caption 灰，仍符合 WCAG 與白底對比 */
+    [data-testid="stCaption"] {
+        color: #475569 !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
