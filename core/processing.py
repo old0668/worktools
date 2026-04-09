@@ -10,8 +10,24 @@ from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv(override=True)
-if os.getenv("GEMINI_API_KEY"):
-    os.environ["GEMINI_API_KEY"] = os.getenv("GEMINI_API_KEY").strip().replace('"', '').replace("'", "")
+
+
+def _clean_env_value(name: str) -> str:
+    return os.getenv(name, "").strip().replace('"', "").replace("'", "")
+
+
+def _resolve_gemini_key() -> str:
+    # Support both new and legacy env var names.
+    key = _clean_env_value("GEMINI_API_KEY")
+    if key and not key.startswith("gsk_"):
+        return key
+    key = _clean_env_value("Gemini_API_KEY")
+    if key and not key.startswith("gsk_"):
+        return key
+    key = _clean_env_value("GOOGLE_API_KEY")
+    if key and not key.startswith("gsk_"):
+        return key
+    return ""
 
 logger = logging.getLogger(__name__)
 
@@ -27,10 +43,15 @@ class Processor:
         
         # Initialize APIs
         self.openai_client = None
+        self.openai_provider = "openai"
         self.gemini_client = None
         
-        gemini_key = os.getenv("GEMINI_API_KEY", "").strip().replace('"', '').replace("'", "")
-        openai_key = os.getenv("OPENAI_API_KEY", "").strip().replace('"', '').replace("'", "")
+        gemini_key = _resolve_gemini_key()
+        openai_key = _clean_env_value("OPENAI_API_KEY")
+        groq_key = _clean_env_value("GROQ_API_KEY")
+        # Allow users to place gsk_ key directly in OPENAI_API_KEY
+        if not groq_key and openai_key.startswith("gsk_"):
+            groq_key = openai_key
         
         if not gemini_key or gemini_key == "your_gemini_api_key":
             logger.warning("GEMINI_API_KEY is missing or is still a placeholder.")
@@ -43,10 +64,22 @@ class Processor:
             except Exception as e:
                 logger.error(f"Failed to initialize Gemini client: {e}")
         
-        if openai_key and openai_key != "your_openai_api_key":
+        if groq_key and groq_key != "your_groq_api_key":
+            logger.info("Initializing Groq client (OpenAI-compatible)...")
+            try:
+                self.openai_client = OpenAI(
+                    api_key=groq_key,
+                    base_url="https://api.groq.com/openai/v1"
+                )
+                self.openai_provider = "groq"
+                logger.info("Groq client initialized successfully.")
+            except Exception as e:
+                logger.error(f"Failed to initialize Groq client: {e}")
+        elif openai_key and openai_key != "your_openai_api_key":
             logger.info("Initializing OpenAI client...")
             try:
                 self.openai_client = OpenAI(api_key=openai_key)
+                self.openai_provider = "openai"
                 logger.info("OpenAI client initialized successfully.")
             except Exception as e:
                 logger.error(f"Failed to initialize OpenAI client: {e}")
@@ -71,8 +104,11 @@ class Processor:
             
             # Use OpenAI if specified and client is available
             if self.openai_client and ('gpt' in model_name or not self.gemini_client):
+                # Groq does not support Gemini model ids.
+                if self.openai_provider == "groq" and ("gpt" not in model_name):
+                    model_name = "llama-3.3-70b-versatile"
                 response = self.openai_client.chat.completions.create(
-                    model=model_name if 'gpt' in model_name else 'gpt-4o',
+                    model=model_name if ('gpt' in model_name or self.openai_provider == "groq") else 'gpt-4o',
                     messages=[
                         {"role": "system", "content": system_instruction},
                         {"role": "user", "content": prompt}
@@ -98,7 +134,35 @@ class Processor:
             else:
                 return "錯誤：找不到可用的 LLM 客戶端。"
         except Exception as e:
+            err_msg = str(e)
             logger.error(f"Generation error: {e}")
+
+            # If Gemini key is invalid but OpenAI is available, fallback automatically.
+            gemini_key_invalid = (
+                "API_KEY_INVALID" in err_msg
+                or "API key not valid" in err_msg
+                or "INVALID_ARGUMENT" in err_msg
+            )
+            if gemini_key_invalid and self.openai_client:
+                try:
+                    logger.warning("Gemini key invalid. Falling back to OpenAI.")
+                    fallback_model = "llama-3.3-70b-versatile" if self.openai_provider == "groq" else "gpt-4o"
+                    response = self.openai_client.chat.completions.create(
+                        model=fallback_model,
+                        messages=[
+                            {"role": "system", "content": system_instruction},
+                            {"role": "user", "content": prompt}
+                        ],
+                        temperature=self.config.get('temperature', 0.3)
+                    )
+                    return response.choices[0].message.content
+                except Exception as fallback_error:
+                    logger.error(f"Fallback to OpenAI failed: {fallback_error}")
+                    return (
+                        "生成回應失敗：Gemini API Key 無效，且 OpenAI 備援也失敗。"
+                        f"\nGemini 錯誤: {e}\nOpenAI 錯誤: {fallback_error}"
+                    )
+
             return f"生成回應時發生錯誤: {e}"
 
     def save_history(self):
@@ -308,8 +372,11 @@ class Processor:
                 )
                 summary = response.text
             else:
+                openai_model = self.config.get('model', 'gpt-4o')
+                if self.openai_provider == "groq" and "gemini" in openai_model:
+                    openai_model = "llama-3.3-70b-versatile"
                 response = self.openai_client.chat.completions.create(
-                    model=self.config.get('model', 'gpt-4o'),
+                    model=openai_model,
                     messages=[
                         {"role": "system", "content": "You are a professional financial analyst. NEVER use introductory phrases. Start directly with the analysis. Sentiment index should be 0-100."},
                         {"role": "user", "content": prompt}
