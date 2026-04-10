@@ -2,6 +2,7 @@ import streamlit as st
 import os
 import yaml
 import json
+import re
 from core.processing import Processor
 from dotenv import load_dotenv
 
@@ -123,6 +124,32 @@ def load_config():
     with open('config/config.yaml', 'r', encoding='utf-8') as f:
         return yaml.safe_load(f)
 
+
+def _extract_first_json_block(text: str) -> str:
+    """Extract first JSON array/object from model output."""
+    if not text:
+        return ""
+
+    cleaned = text.strip()
+    # Strip markdown fences first.
+    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s*```$", "", cleaned)
+
+    # Prefer JSON array/object boundaries if model adds extra text.
+    starts = [idx for idx in (cleaned.find("["), cleaned.find("{")) if idx != -1]
+    if not starts:
+        return cleaned
+    start_idx = min(starts)
+
+    ends = [idx for idx in (cleaned.rfind("]"), cleaned.rfind("}")) if idx != -1]
+    if not ends:
+        return cleaned[start_idx:]
+    end_idx = max(ends)
+    if end_idx < start_idx:
+        return cleaned[start_idx:]
+
+    return cleaned[start_idx:end_idx + 1]
+
 # Initialize Logic
 config = load_config()
 processor = Processor(config['keywords'], config['llm'])
@@ -149,6 +176,7 @@ if app_mode == "翻譯助理":
             if user_input.strip():
                 with st.spinner("正在進行高品質翻譯..."):
                     system_prompt = """你是一位精通多國語言的專業翻譯官。請提供三種語氣翻譯。
+請「只輸出 JSON」且不得加入任何前言、結語或 markdown 標記。
 輸出格式必須嚴格遵守 JSON 陣列：
 [
   {"name": "專業 (Professional)", "content": "翻譯結果", "desc": "適用於技術報告或商務書信"},
@@ -166,16 +194,17 @@ if app_mode == "翻譯助理":
         if 'trans_result' in st.session_state:
             raw_res = st.session_state['trans_result']
             try:
-                clean_res = raw_res.strip().replace('```json', '').replace('```', '').strip()
+                clean_res = _extract_first_json_block(raw_res)
                 results = json.loads(clean_res)
                 for style in results:
                     with st.expander(f"✨ {style['name']}", expanded=True):
                         st.markdown(f'<div class="content-box" style="background-color:#F1F5F9;">{style["content"]}</div>', unsafe_allow_html=True)
                         st.caption(f"💡 {style['desc']}")
                 st.success("翻譯已優化完成！")
-            except:
-                st.error("解析錯誤。")
-                st.text(raw_res)
+            except Exception as e:
+                st.error("解析錯誤：模型回傳不是有效 JSON。")
+                st.caption(f"錯誤詳情：{e}")
+                st.text_area("原始內容：", raw_res, height=220)
         else:
             st.info("翻譯結果將顯示在此處。")
 
@@ -196,6 +225,7 @@ elif app_mode == "測試助理":
                 with st.spinner("正在生成測試策略與案例..."):
                     # 測試助理專用結構化 Prompt
                     system_prompt = """你是一位資深的軟體測試工程師 (QA)。請針對需求生成測試分析。
+請「只輸出 JSON」且不得加入任何前言、結語或 markdown 標記。
 輸出格式必須嚴格遵守以下 JSON 格式：
 {
   "strategy": "測試策略概述內容...",
@@ -233,7 +263,7 @@ elif app_mode == "測試助理":
     if 'test_analysis' in st.session_state:
         raw_res = st.session_state['test_analysis']
         try:
-            clean_res = raw_res.strip().replace('```json', '').replace('```', '').strip()
+            clean_res = _extract_first_json_block(raw_res)
             data = json.loads(clean_res)
             
             # 1. 策略概述
