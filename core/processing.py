@@ -53,9 +53,7 @@ class Processor:
         if not groq_key and openai_key.startswith("gsk_"):
             groq_key = openai_key
         
-        if not gemini_key or gemini_key == "your_gemini_api_key":
-            logger.warning("GEMINI_API_KEY is missing or is still a placeholder.")
-        else:
+        if gemini_key and gemini_key != "your_gemini_api_key":
             masked_key = f"{gemini_key[:4]}...{gemini_key[-4:]}"
             logger.info(f"Initializing Gemini client with key: {masked_key}")
             try:
@@ -83,6 +81,15 @@ class Processor:
                 logger.info("OpenAI client initialized successfully.")
             except Exception as e:
                 logger.error(f"Failed to initialize OpenAI client: {e}")
+
+        if not self.gemini_client and not self.openai_client:
+            logger.warning("No valid LLM API key found (Gemini/Groq/OpenAI).")
+        elif self.openai_client and self.openai_provider == "groq":
+            logger.info("LLM provider in use: Groq")
+        elif self.openai_client and self.openai_provider == "openai":
+            logger.info("LLM provider in use: OpenAI")
+        elif self.gemini_client:
+            logger.info("LLM provider in use: Gemini")
 
     def load_history(self):
         if os.path.exists(self.history_file):
